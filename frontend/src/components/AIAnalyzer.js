@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom'; // ⬅️ for navigation
+import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 
 const AIAnalyzer = () => {
   const [image, setImage] = useState(null);
@@ -7,7 +8,7 @@ const AIAnalyzer = () => {
   const [result, setResult] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const navigate = useNavigate(); // ⬅️ React Router hook
+  const navigate = useNavigate();
 
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
@@ -18,22 +19,37 @@ const AIAnalyzer = () => {
     }
   };
 
-  const analyzeImage = () => {
+  const analyzeImage = async () => {
     if (!image) return;
-
     setLoading(true);
     setResult('');
 
-    setTimeout(() => {
-      const types = ['Oily Skin', 'Dry Skin', 'Combination Skin', 'Normal Skin'];
-      const detected = types[Math.floor(Math.random() * types.length)];
-      setResult(detected);
+    try {
+      const formData = new FormData();
+      formData.append('image', image);
+
+      console.log("📤 Sending image to backend:", image.name);
+
+      const res = await axios.post('http://localhost:5000/api/analyze', formData);
+
+      console.log("✅ Backend response:", res.data);
+
+      if (res.data.skinType) {
+        setResult(res.data.skinType);
+        localStorage.setItem('skinType', res.data.skinType);
+      } else {
+        alert('No skin type detected. Try again.');
+      }
+    } catch (err) {
+      console.error("❌ Error analyzing image:", err);
+      alert(`Error analyzing image: ${err.response?.data?.error || err.message}`);
+    } finally {
       setLoading(false);
-    }, 2000);
+    }
   };
 
   const handleExploreProducts = () => {
-    navigate('/product', { state: { skinType: result } }); // pass detected type
+    navigate('/product');
   };
 
   return (

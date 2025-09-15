@@ -1,57 +1,71 @@
-const express = require('express');
-const cors = require('cors');
-const products = require('./data/products');
+const express = require("express");
+const cors = require("cors");
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
+const { spawn } = require("child_process");
 
 const app = express();
-app.use(cors());
-app.use(express.json()); // to parse JSON from requests
-
-// 🔐 In-memory user store (you can replace with DB later)
-const users = [
-  { email: 'test@example.com', password: '123456' }
-];
-
-// ✅ Login Route
-app.post('/api/login', (req, res) => {
-  const { email, password } = req.body;
-
-  const user = users.find(u => u.email === email && u.password === password);
-
-  if (user) {
-    res.json({
-      message: 'Login successful',
-      user: { email },
-      token: 'fake-token-123' // Replace with real JWT later
-    });
-  } else {
-    res.status(401).json({ message: 'Invalid email or password' });
-  }
-});
-
-// 🆕 ✅ Register Route
-app.post('/api/register', (req, res) => {
-  const { email, password } = req.body;
-
-  const existingUser = users.find(u => u.email === email);
-  if (existingUser) {
-    return res.status(409).json({ message: 'User already exists' });
-  }
-
-  users.push({ email, password });
-  res.status(201).json({ message: 'Registration successful', user: { email } });
-});
-
-// 🛍 Products API
-app.get('/api/products', (req, res) => {
-  const { skinType } = req.query;
-  const result = products[skinType];
-
-  if (!result) {
-    return res.status(400).json({ error: 'Invalid skin type' });
-  }
-
-  res.json(result);
-});
-
 const PORT = 5000;
-app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));
+
+// ✅ Middlewares
+app.use(cors());
+app.use(express.json());
+
+// ✅ Ensure uploads folder exists
+if (!fs.existsSync("uploads")) {
+  fs.mkdirSync("uploads");
+}
+
+// ✅ Setup multer
+const upload = multer({ dest: "uploads/" });
+
+// ✅ Route
+app.post("/api/analyze", upload.single("image"), (req, res) => {
+  console.log("📥 Incoming request to /api/analyze");
+
+  if (!req.file) {
+    console.log("⚠️ No file received!");
+    return res.status(400).json({ error: "No image uploaded" });
+  }
+
+  console.log(`✅ File received: ${req.file.originalname}`);
+  console.log(`   ➤ Size: ${req.file.size} bytes`);
+  console.log(`   ➤ Mimetype: ${req.file.mimetype}`);
+  console.log(`   ➤ Stored at: ${req.file.path}`);
+
+  const imagePath = path.resolve(req.file.path);
+
+  // ✅ Call Python script
+  const python = spawn("python", ["backend/ml/predict.py", imagePath]);
+
+  let result = "";
+  let errorOutput = "";
+
+  python.stdout.on("data", (data) => {
+    result += data.toString();
+  });
+
+  python.stderr.on("data", (data) => {
+    errorOutput += data.toString();
+    console.error(`🐍 Python Error: ${data}`);
+  });
+
+  python.on("close", (code) => {
+    console.log("🔚 Python script finished with code:", code);
+
+    if (fs.existsSync(imagePath)) fs.unlinkSync(imagePath);
+
+    if (code !== 0 || !result.trim()) {
+      console.error("❌ Python script failed or returned empty result.");
+      return res.status(500).json({ error: "AI processing failed", details: errorOutput });
+    }
+
+    res.json({ skinType: result.trim() });
+  });
+});
+
+// ✅ Start server
+app.listen(PORT, () => {
+  console.log(`🚀 Backend running on http://localhost:${PORT}`);
+});
